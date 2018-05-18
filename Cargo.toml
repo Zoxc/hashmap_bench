@@ -2,6 +2,7 @@
 name = "bench"
 version = "0.1.0"
 authors = ["John Kåre Alsaker <john.kare.alsaker@gmail.com>"]
+crate-type = "dylib"
 
 [dependencies]
 

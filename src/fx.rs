@@ -14,6 +14,7 @@ use std::hash::{Hasher, Hash, BuildHasherDefault};
 use std::ops::BitXor;
 use std::mem;
 use std;
+use std::slice;
 
 pub type FxHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 pub type FxHashSet<V> = HashSet<V, BuildHasherDefault<FxHasher>>;
@@ -199,14 +200,134 @@ impl Default for DummyHasher {
 impl DummyHasher {
     #[inline]
     fn add_to_hash(&mut self, i: usize) {
+        self.hash = self.hash.rotate_left(5).bitxor(i).wrapping_mul(K);
+    }
+}
+
+pub fn hash_dummy(bytes: &[u8]) -> u64 {
+    let mut d = DummyHasher::default();
+    d.write(bytes);
+    d.finish()
+}
+
+impl Hasher for DummyHasher {
+    /*
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut bytes = bytes;
+        let mut a = FxHasher2::default();
+        let mut b = FxHasher2::default();
+        while bytes.len() >= 16 {
+            unsafe {
+                a.add_to_hash(*(bytes.get_unchecked(0) as *const _ as *const usize));
+                b.add_to_hash(*(bytes.get_unchecked(8) as *const _ as *const usize));
+                bytes = slice::from_raw_parts(bytes.get_unchecked(16), bytes.len() - 16);
+            }
+        }
+        self.hash = a.finish() as usize;
+        self.add_to_hash(b.finish() as usize);
+        for byte in bytes {
+            let i = *byte;
+            self.add_to_hash(i as usize);
+        }
+    }
+*/
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        use std::arch::x86_64::*;
+        let mut bytes = bytes;
+        unsafe {
+            let mut state = _mm_set1_epi8(0);
+            let k = _mm_set1_epi64x(0x517cc1b727220a95);
+            while bytes.len() >= 16 {
+                let data = _mm_loadu_si128(bytes.get_unchecked(0) as *const _ as *const _);
+                state = _mm_xor_si128(state, data);
+                state = _mm_bslli_si128(state, 5);
+                state = _mm_mullo_epi16(state, k);
+                state = _mm_add_epi64(state, data);
+                bytes = slice::from_raw_parts(bytes.get_unchecked(16), bytes.len() - 16);
+            }
+            state = _mm_add_epi64(_mm_unpackhi_epi64(state, state), state);
+            self.hash = _mm_cvtsi128_si64(state) as usize;
+        }
+        for byte in bytes {
+            let i = *byte;
+            self.add_to_hash(i as usize);
+        }
+    }
+
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.add_to_hash(i as usize);
+    }
+
+    #[inline]
+    fn write_u16(&mut self, i: u16) {
+        self.add_to_hash(i as usize);
+    }
+
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.add_to_hash(i as usize);
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.add_to_hash(i as usize);
+        self.add_to_hash((i >> 32) as usize);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.add_to_hash(i as usize);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.add_to_hash(i);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash as u64
+    }
+}
+
+pub struct PlainHasher {
+    hash: usize
+}
+
+impl Default for PlainHasher {
+    #[inline]
+    fn default() -> PlainHasher {
+        PlainHasher { hash: 0 }
+    }
+}
+
+impl PlainHasher {
+    #[inline]
+    fn add_to_hash(&mut self, i: usize) {
         self.hash += i;
     }
 }
 
-impl Hasher for DummyHasher {
+impl Hasher for PlainHasher {
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        self.add_to_hash(*bytes.get(0).unwrap_or(&0u8) as usize)
+        let split = bytes.len() & !7;
+        let (first, rest) =  bytes.split_at(split);
+        let first: &[usize] = unsafe { 
+            std::slice::from_raw_parts(first.as_ptr() as *const usize, first.len() / 8)
+        };
+        for word in first {
+            self.add_to_hash(*word);
+        }
+        for byte in rest {
+            let i = *byte;
+            self.add_to_hash(i as usize);
+        }
     }
 
     #[inline]

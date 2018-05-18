@@ -3,6 +3,7 @@
 #![feature(allocator_api)]
 #![feature(core_intrinsics)]
 
+
 extern crate alloc;
 
 use std::marker::PhantomData;
@@ -25,6 +26,34 @@ pub type HashMap<K, V> = fx::FxHashMap<K, V>;
 pub fn test(a: &str, b: &str) -> bool {
     a == b
 }
+
+/// A hash that is not zero, since we use a hash of zero to represent empty
+/// buckets.
+#[derive(PartialEq, Copy, Clone)]
+pub struct SafeHash {
+    hash: u32,
+}
+
+impl SafeHash {
+    /// Peek at the hash value, which is guaranteed to be non-zero.
+    #[inline(always)]
+    pub fn inspect(&self) -> u32 {
+        self.hash
+    }
+
+    #[inline(always)]
+    pub fn new(hash: u32) -> Self {
+        // We need to avoid 0 in order to prevent collisions with
+        // EMPTY_HASH. We can maintain our precious uniform distribution
+        // of initial indexes by unconditionally setting the MSB,
+        // effectively reducing the hashes by one bit.
+        //
+        // Truncate hash to fit in `HashUint`.
+        let hash_bits = size_of::<u32>() * 8;
+        SafeHash { hash: (1 << (hash_bits - 1)) | hash }
+    }
+}
+
 /*
 const ENTRIES_PER_GROUP: usize = 5;
 
@@ -71,7 +100,7 @@ impl Group {
         self.values[..].iter().position(|&v| v == 0)
     }
 */
-
+/* This is based on self.size and doesn't unroll
     #[inline(always)]
     fn search_with<K, F: FnMut(&K) -> bool>(&self, eq: &mut F, hash: u32) -> Option<(usize, bool)> {
         for i in 0..(self.size as usize) {
@@ -82,48 +111,76 @@ impl Group {
         }
         self.search_for_empty().map(|i| (i, true))
     }
+*/
 
+    #[inline(always)]
+    fn search_with<K, F: FnMut(&K) -> bool>(&self, eq: &mut F, hash: u32) -> Option<(usize, bool)> {
+        // This unrolls
+        for i in 0..ENTRIES_PER_GROUP {
+            let h = unsafe { *self.hashes.get_unchecked(i) };
+            if h == hash && eq(unsafe { mem::transmute(self.values.get_unchecked(i)) }) {
+                return Some((i, false))
+            }
+        }
+        self.search_for_empty().map(|i| (i, true))
+    }
 /*
-    #[inline(never)]
-    #[target_feature(enable = "sse4.1", enable = "avx2", enable = "bmi1")]
+    //#[inline(never)]
+    //#[target_feature(enable = "sse4.1", enable = "avx2", enable = "bmi1")]
+    #[inline(always)]
     unsafe fn search_with<K, F: FnMut(&K) -> bool>(&self, eq_test: &mut F, hash: u32) -> Option<(usize, bool)> {
         use std::arch::x86_64::*;
         unsafe {
-            /*println!("checking for hash {}", hash);
-                
+            //println!("checking for hash {} hashes {:?} values {:?}", hash, self.hashes, self.values);
+               /* 
             for (i, &h) in self.hashes[..].iter().enumerate() {
                 println!("checking for hash {}: {} val: {}", i, h, self.values[i]);
             }*/
 
             let hashes = _mm_load_si128(&self.hashes as *const _ as *const _);
-            let hash = _mm_set1_epi32(hash as i32);
-            let eq = _mm_cmpeq_epi32(hash, hashes);
-            //println!("eq {:?}", eq);
-            let eq = _mm_packs_epi32(eq, eq);
+            let hash_s = _mm_set1_epi32(hash as i32);
+            let eq = _mm_cmpeq_epi32(hash_s, hashes);
+            ///println!("eq {:?}", eq);
+            //let eq = _mm_packs_epi32(eq, eq);
             //println!("eq1 {:?}", eq);
             //let eq = _mm_cvtsi128_si64(eq);
-            let eq = _mm_packs_epi16(eq, eq);
+            //let eq = _mm_packs_epi16(eq, eq);
             //println!("eq2 {:?}", eq);
-            let mut mask = (_mm_movemask_epi8(eq) & 0xF) as u8;
+            //let mut mask = (_mm_movemask_epi8(eq) & 0xF) as u8;
+            let mut mask = _mm_movemask_epi8(eq) as u32;
             //println!("mask {} {}", mask, _mm_movemask_epi8(eq));
             let mut i = 0;
 
-            loop {
-                let skip = std::intrinsics::cttz(mask);
-                if skip == 8 {
-                    //println!("no hash matched");
-                    break;
-                }
-                i += skip as usize;
-                mask = mask >> (skip + 1);
-                //println!("hash {} matched", i);
-                if eq_test(unsafe { mem::transmute(self.values.get_unchecked(i)) }) {
+            for i in 0..4 {
+                if (mask & (1 << (4 * i as u32)) != 0) && eq_test(unsafe { mem::transmute(self.values.get_unchecked(i)) }) {
                     return Some((i, false))
                 }
             }
 
+            let h = unsafe { *self.hashes.get_unchecked(4) };
+            if h == hash && eq_test(unsafe { mem::transmute(self.values.get_unchecked(4)) }) {
+                return Some((4, false))
+            }
+            /*
+            loop {
+                let skip = std::intrinsics::cttz(mask);
+                if skip == 32 {
+                    //println!("no hash matched");
+                    break;
+                }
+                i += (skip >> 2) as usize;
+                mask = mask >> (skip + 4);
+                //println!("testing idx {} rem {} skip {}", i, mask, skip);
+                if eq_test(unsafe { mem::transmute(self.values.get_unchecked(i)) }) {
+                    //println!("found hash at {}", i);
+                    return Some((i, false))
+                }
+                i += 1;
+            }*/
+            //println!("did not find hash");
+
         }
-        self.search_for_empty(hash).map(|i| (i, true))
+        self.search_for_empty().map(|i| (i, true))
     }
 */
     #[inline(always)]
@@ -136,8 +193,13 @@ impl Group {
 
     #[inline(always)]
     fn iter<F: FnMut(u32, u64)>(&self, f: &mut F) {
-        for i in 0..(self.size as usize) {
-            f(self.hashes[i], self.values[i])
+        for i in 0..ENTRIES_PER_GROUP {
+            unsafe {
+                let h = *self.hashes.get_unchecked(i);
+                if h != 0 {
+                    f(h, *self.values.get_unchecked(i))
+                }
+            }
         }
     }
 }
@@ -174,7 +236,7 @@ impl Table {
             let group = unsafe {
                 &mut (*groups.as_ptr().offset(i as isize))
             };
-            group.values = [0; ENTRIES_PER_GROUP];
+            group.hashes = [0; ENTRIES_PER_GROUP];
             group.size = 0;
         }
 
@@ -227,6 +289,8 @@ impl Table {
                 &(*group_ptr)
             };
             let r = unsafe { group.search_with(&mut eq, hash as u32) } ;
+            //let r2 = unsafe { group.search_with2(&mut eq, hash as u32) } ;
+            //assert_eq!(r, r2);
             //println!("search_with {}: {:?}", group_idx, r);
             match r {
                 Some((pos, empty)) => return RawEntry {
@@ -296,7 +360,7 @@ pub fn make_hash<T: ?Sized, S>(hash_state: &S, t: &T) -> u64
 {
     let mut state = hash_state.build_hasher();
     t.hash(&mut state);
-    state.finish()
+    SafeHash::new(state.finish() as u32).inspect() as u64
 }
 
 impl<K: Eq + Hash + Debug + Copy, S: BuildHasher> Set<K, S> {

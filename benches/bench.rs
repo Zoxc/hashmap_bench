@@ -245,6 +245,35 @@ fn syntax_syntex_hash_symbols_dummy(b: &mut Bencher) {
     });
 }
 
+fn syntax_syntex_hash_symbols_plain(b: &mut Bencher) {
+    let strs = &SYMBOLS.1;
+    let mut hasher = bench::fx::PlainHasher::default();
+
+    b.iter(|| {
+        for s in strs {
+            (**s).hash(&mut hasher)
+        }
+    });
+}
+
+fn str_dummy(b: &mut Bencher) {
+    let mut hasher = bench::fx::DummyHasher::default();
+    let str = "i";
+
+    b.iter(|| {
+        str.hash(&mut hasher);
+    });
+}
+
+fn str_fx2(b: &mut Bencher) {
+    let mut hasher = bench::fx::FxHasher2::default();
+    let str = "i";
+
+    b.iter(|| {
+        str.hash(&mut hasher);
+    });
+}
+
 fn syntax_syntex_hash_symbols_def(b: &mut Bencher) {
     let strs = &SYMBOLS.1;
     let mut hasher = RandomState::new().build_hasher();
@@ -324,6 +353,25 @@ fn symbols_indirect(b: &mut Bencher) {
     });
 }
 
+fn symbols_indirect_simple(b: &mut Bencher) {
+    fn intern(map: &mut HashSet<&'static &'static str, BuildHasherDefault<bench::fx::DummyHasher>>, string: &'static &'static str) -> &'static &'static str {
+        if let Some(&name) = map.get(string) {
+            return name;
+        }
+        map.insert(string);
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = HashSet::default();
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
+}
+
 fn symbols_indirect_set_cap(b: &mut Bencher) {
     fn intern(map: &mut bench::Set<&'static &'static str, BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
         if let Some(&name) = map.get(string) {
@@ -362,6 +410,17 @@ fn symbols_indirect_set(b: &mut Bencher) {
     });
 }
 
+fn symbols_indirect_set_intern_simple(b: &mut Bencher) {
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = bench::Set::<&'static &'static str, BuildHasherDefault<bench::fx::DummyHasher>>::new();
+        for s in strs {
+            m.intern(s);
+        }
+    });
+}
+
 fn symbols_indirect_set_intern(b: &mut Bencher) {
     let strs = &SYMBOLS.1;
 
@@ -395,7 +454,8 @@ fn set_test() {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut m = bench::Set::<&'static &'static str, BuildHasherDefault<FxHasher2>>::new();
+     bench::fx::hash_dummy(&[]);
+    /*let mut m = bench::Set::<&'static &'static str, BuildHasherDefault<FxHasher2>>::new();
     bench::intern_str(&mut m, &"h");
      set_test();
    // c.bench_function("new_drop", new_drop);
@@ -404,20 +464,27 @@ fn criterion_benchmark(c: &mut Criterion) {
     syntax_syntex_hit_rate();
     symbols_test();
     c.bench_function("symbols_indirect", symbols_indirect);
-    c.bench_function("symbols_indirect_set", symbols_indirect_set);
-    c.bench_function("symbols_indirect_set_intern", symbols_indirect_set_intern);
-    c.bench_function("symbols_indirect_cap", symbols_indirect_cap);
-    c.bench_function("symbols_indirect_set_cap", symbols_indirect_set_cap);
-    c.bench_function("symbols_indirect_set_intern_cap", symbols_indirect_set_intern_cap);
+    c.bench_function("symbols_indirect_set", symbols_indirect_set);*/
+    c.bench_function("syntax_syntex_hash_symbols_plain", syntax_syntex_hash_symbols_plain);
     c.bench_function("syntax_syntex_hash_symbols_dummy", syntax_syntex_hash_symbols_dummy);
     c.bench_function("syntax_syntex_hash_symbols_fx2", syntax_syntex_hash_symbols_fx2);
-    c.bench_function("syntax_syntex_hash_symbols_fx", syntax_syntex_hash_symbols_fx);
+    c.bench_function("str_dummy", str_dummy);
+    c.bench_function("str_fx2", str_fx2);
+
+    c.bench_function("symbols_indirect", symbols_indirect);
+    c.bench_function("symbols_indirect_simple", symbols_indirect_simple);
+    c.bench_function("symbols_indirect_set_intern", symbols_indirect_set_intern);
+    c.bench_function("symbols_indirect_set_intern_simple", symbols_indirect_set_intern_simple);/*
+    c.bench_function("symbols_indirect_cap", symbols_indirect_cap);
+    c.bench_function("symbols_indirect_set_cap", symbols_indirect_set_cap);
+    c.bench_function("symbols_indirect_set_intern_cap", symbols_indirect_set_intern_cap);*/
+    /*c.bench_function("syntax_syntex_hash_symbols_fx", syntax_syntex_hash_symbols_fx);
     c.bench_function("syntax_syntex_hash_symbols_def", syntax_syntex_hash_symbols_def);
     c.bench_function("syntax_syntex_symbols", syntax_syntex_symbols);
     c.bench_function("syntax_syntex_symbols_str", syntax_syntex_symbols_str);
     c.bench_function("syntax_syntex_symbols_def", syntax_syntex_symbols_def);
     c.bench_function("find_existing", find_existing);
-    c.bench_function("find_nonexisting", find_nonexisting);
+    c.bench_function("find_nonexisting", find_nonexisting);*/
 }
 /*pub fn benches() {
     let mut criterion: Criterion = Criterion::default()
