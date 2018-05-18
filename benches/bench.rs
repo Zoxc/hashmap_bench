@@ -86,6 +86,13 @@ lazy_static! {
         }).collect();
         (s, strs)
     };
+    static ref SYMBOLS2: (Vec<String>, Vec<&'static str>) = {
+        let s: Vec<String> = SYMBOLS.0.clone();
+        let strs: Vec<&'static str> = s.iter().map(|s| unsafe {
+            &*(&**s as *const str)
+        }).collect();
+        (s, strs)
+    };
 }
 
 fn syntax_syntex_hit_rate() {
@@ -274,6 +281,40 @@ fn str_fx2(b: &mut Bencher) {
     });
 }
 
+fn streq(b: &mut Bencher) {
+    let strs_a = &SYMBOLS.1;
+    let strs_b = &SYMBOLS2.1;
+    b.iter(|| {
+        for (a, b) in strs_a.iter().zip(strs_b.iter()) {
+            //println!("{} {:x} {} {:x}", a, a.as_ptr() as usize, b, b.as_ptr() as usize);
+            //assert!(a.as_ptr() != b.as_ptr());
+            bench::streq_n(a, b);
+        }
+    });
+}
+
+fn streq_s(b: &mut Bencher) {
+    let strs_a = &SYMBOLS.1;
+    let strs_b = &SYMBOLS2.1;
+    b.iter(|| {
+        for (a, b) in strs_a.iter().zip(strs_b.iter()) {
+            //println!("{} {:x} {} {:x}", a, a.as_ptr() as usize, b, b.as_ptr() as usize);
+            //assert!(a.as_ptr() != b.as_ptr());
+            bench::streq_s(a, b);
+        }
+    });
+}
+
+fn streq_true(b: &mut Bencher) {
+    let strs_a = &SYMBOLS.1;
+    let strs_b = &SYMBOLS2.1;
+    b.iter(|| {
+        for (a, b) in strs_a.iter().zip(strs_b.iter()) {
+            bench::streq_true(a, b);
+        }
+    });
+}
+
 fn syntax_syntex_hash_symbols_def(b: &mut Bencher) {
     let strs = &SYMBOLS.1;
     let mut hasher = RandomState::new().build_hasher();
@@ -421,6 +462,28 @@ fn symbols_indirect_set_intern_simple(b: &mut Bencher) {
     });
 }
 
+#[derive(Hash, Copy, Clone, Debug)]
+struct StrCmp(&'static &'static str);
+
+impl PartialEq for StrCmp {
+    fn eq(&self, other: &StrCmp) -> bool {
+        bench::streq_sr(*self.0, *other.0)
+    }
+}
+
+impl Eq for StrCmp {}
+
+fn symbols_indirect_set_intern_strcmp(b: &mut Bencher) {
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = bench::Set::<StrCmp, BuildHasherDefault<FxHasher2>>::new();
+        for s in strs {
+            m.intern(StrCmp(s));
+        }
+    });
+}
+
 fn symbols_indirect_set_intern(b: &mut Bencher) {
     let strs = &SYMBOLS.1;
 
@@ -454,7 +517,13 @@ fn set_test() {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
+    bench::streq_n("a", "b");
+    bench::streq_true("a", "b");
+    bench::streq_s("a", "b");
      bench::fx::hash_dummy(&[]);
+    c.bench_function("streq", streq);
+    c.bench_function("streq_s", streq_s);
+    //c.bench_function("streq_true", streq_true);
     /*let mut m = bench::Set::<&'static &'static str, BuildHasherDefault<FxHasher2>>::new();
     bench::intern_str(&mut m, &"h");
      set_test();
@@ -465,17 +534,18 @@ fn criterion_benchmark(c: &mut Criterion) {
     symbols_test();
     c.bench_function("symbols_indirect", symbols_indirect);
     c.bench_function("symbols_indirect_set", symbols_indirect_set);*/
-    c.bench_function("syntax_syntex_hash_symbols_plain", syntax_syntex_hash_symbols_plain);
+    /*c.bench_function("syntax_syntex_hash_symbols_plain", syntax_syntex_hash_symbols_plain);
     c.bench_function("syntax_syntex_hash_symbols_dummy", syntax_syntex_hash_symbols_dummy);
     c.bench_function("syntax_syntex_hash_symbols_fx2", syntax_syntex_hash_symbols_fx2);
     c.bench_function("str_dummy", str_dummy);
-    c.bench_function("str_fx2", str_fx2);
+    c.bench_function("str_fx2", str_fx2);*/
 
-    c.bench_function("symbols_indirect", symbols_indirect);
-    c.bench_function("symbols_indirect_simple", symbols_indirect_simple);
+    //c.bench_function("symbols_indirect", symbols_indirect);
+    //c.bench_function("symbols_indirect_simple", symbols_indirect_simple);
+    c.bench_function("symbols_indirect_set_intern_strcmp", symbols_indirect_set_intern_strcmp);
     c.bench_function("symbols_indirect_set_intern", symbols_indirect_set_intern);
-    c.bench_function("symbols_indirect_set_intern_simple", symbols_indirect_set_intern_simple);/*
-    c.bench_function("symbols_indirect_cap", symbols_indirect_cap);
+    //c.bench_function("symbols_indirect_set_intern_simple", symbols_indirect_set_intern_simple);
+    /*c.bench_function("symbols_indirect_cap", symbols_indirect_cap);
     c.bench_function("symbols_indirect_set_cap", symbols_indirect_set_cap);
     c.bench_function("symbols_indirect_set_intern_cap", symbols_indirect_set_intern_cap);*/
     /*c.bench_function("syntax_syntex_hash_symbols_fx", syntax_syntex_hash_symbols_fx);

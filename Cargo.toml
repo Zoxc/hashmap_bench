@@ -5,10 +5,12 @@ authors = ["John Kåre Alsaker <john.kare.alsaker@gmail.com>"]
 crate-type = "dylib"
 
 [dependencies]
+criterion = { version = "0.2", features=["real_blackbox"] }
 
 [dev-dependencies]
 criterion = { version = "0.2", features=["real_blackbox"] }
 lazy_static = "1.0"
+quickcheck = "0.6.2"
 
 [[bench]]
 name = "bench"
