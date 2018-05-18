@@ -256,6 +256,55 @@ fn syntax_syntex_hash_symbols_def(b: &mut Bencher) {
     });
 }
 
+fn symbols_indirect_cap(b: &mut Bencher) {
+    fn intern(map: &mut HashSet<&'static &'static str, BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
+        if let Some(&name) = map.get(string) {
+            return name;
+        }
+        map.insert(string);
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = HashSet::with_capacity_and_hasher(strs.len(), Default::default());
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
+}
+
+fn symbols_test() {
+    fn intern(
+        map1: &mut HashSet<&'static &'static str, BuildHasherDefault<FxHasher2>>,
+        map2: &mut bench::Set<&'static &'static str, BuildHasherDefault<FxHasher2>>,
+    string: &'static &'static str) -> &'static &'static str {
+        //eprintln!("getting {}", string);
+        //eprintln!("getting test {:?}", map2.get(&"extern"));
+        assert_eq!(map1.get(&"extern"), map2.get(&"extern"));
+        assert_eq!(map1.get(string), map2.get(string));
+        if let Some(&name) = map1.get(string) {
+            return name;
+        }
+        map1.insert(string);
+        map2.insert(string);
+        //eprintln!("inserting {}", string);
+        assert!(map1.get(string) == map2.get(string));
+        //eprintln!("getting test after insert {:?}", map2.get(&"extern"));
+        assert_eq!(map1.get(&"extern"), map2.get(&"extern"));
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    let mut m1 = bench::Set::new();
+    let mut m2 = HashSet::default();
+    for s in strs {
+        intern(&mut m2, &mut m1, s);
+    }
+}
+
 fn symbols_indirect(b: &mut Bencher) {
     fn intern(map: &mut HashSet<&'static &'static str, BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
         if let Some(&name) = map.get(string) {
@@ -269,6 +318,25 @@ fn symbols_indirect(b: &mut Bencher) {
 
     b.iter(|| {
         let mut m = HashSet::default();
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
+}
+
+fn symbols_indirect_set_cap(b: &mut Bencher) {
+    fn intern(map: &mut bench::Set<&'static &'static str, BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
+        if let Some(&name) = map.get(string) {
+            return name;
+        }
+        map.insert(string);
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = bench::Set::with_capacity(strs.len());
         for s in strs {
             intern(&mut m, s);
         }
@@ -305,14 +373,42 @@ fn symbols_indirect_set_intern(b: &mut Bencher) {
     });
 }
 
+fn symbols_indirect_set_intern_cap(b: &mut Bencher) {
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = bench::Set::<&'static &'static str, BuildHasherDefault<FxHasher2>>::with_capacity(strs.len());
+        for s in strs {
+            m.intern(s);
+        }
+    });
+}
+
+fn set_test() {
+    let mut set = bench::Set::<&'static &'static str>::new();
+    //set.insert(&"hello");
+    //set.insert(&"hi");
+    set.insert(&"abc");
+    set.intern(&"abc");
+    set.insert(&"abc");
+    println!("set {}", set.len());
+}
+
 fn criterion_benchmark(c: &mut Criterion) {
+    let mut m = bench::Set::<&'static &'static str, BuildHasherDefault<FxHasher2>>::new();
+    bench::intern_str(&mut m, &"h");
+     set_test();
    // c.bench_function("new_drop", new_drop);
    // c.bench_function("new_insert_drop", new_insert_drop);
     //c.bench_function("grow_by_insertion", grow_by_insertion);
     syntax_syntex_hit_rate();
+    symbols_test();
     c.bench_function("symbols_indirect", symbols_indirect);
     c.bench_function("symbols_indirect_set", symbols_indirect_set);
     c.bench_function("symbols_indirect_set_intern", symbols_indirect_set_intern);
+    c.bench_function("symbols_indirect_cap", symbols_indirect_cap);
+    c.bench_function("symbols_indirect_set_cap", symbols_indirect_set_cap);
+    c.bench_function("symbols_indirect_set_intern_cap", symbols_indirect_set_intern_cap);
     c.bench_function("syntax_syntex_hash_symbols_dummy", syntax_syntex_hash_symbols_dummy);
     c.bench_function("syntax_syntex_hash_symbols_fx2", syntax_syntex_hash_symbols_fx2);
     c.bench_function("syntax_syntex_hash_symbols_fx", syntax_syntex_hash_symbols_fx);
