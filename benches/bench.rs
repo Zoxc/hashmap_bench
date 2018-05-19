@@ -11,7 +11,7 @@ use bench::fx::FxHasher2;
 
 use criterion::black_box;
 use criterion::Bencher;
-
+use std::mem::size_of_val;
 use criterion::Criterion;
 
 use std::collections::hash_map::RandomState;
@@ -21,6 +21,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use bench::HashMap;
+use bench::map::Map;
 use std::fs;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -44,16 +45,53 @@ fn new_insert_drop(b: &mut Bencher) {
     })
 }
 
-fn find_existing(b: &mut Bencher) {
+fn find_existing_map(b: &mut Bencher) {
 
-    let mut m = HashMap::default();
+    let mut m = Map::<u64, u64, BuildHasherDefault<bench::fx::FxHasher>>::new();
 
-    for i in 1..1001i64 {
+    for i in 1..100100u64 {
         m.insert(i, i);
     }
 
     b.iter(|| {
-        for i in 1..1001i64 {
+        let mut r = 0;
+        for i in 1..100100u64 {
+            r += bench::hmt2(&m, i);
+        }
+        r
+        /*let mut r = true;
+        for i in 1..100100u64 {
+            r = r & m.contains_key(&i);
+        }
+        r*/
+    });
+}
+
+fn find_existing(b: &mut Bencher) {
+    let mut m = bench::fx::FxHashMap::default();
+
+    for i in 1..1001000u64 {
+        m.insert(i, i);
+    }
+
+    b.iter(|| {
+        let mut r = 0;
+        for i in 1..100100u64 {
+            r += bench::hmt(&m, i);
+        }
+        r
+    });
+}
+
+fn find_nonexisting_map(b: &mut Bencher) {
+    let mut m = Map::<u64, u64, BuildHasherDefault<bench::fx::FxHasher>>::new();
+
+    for i in 1..100100u64 {
+        m.insert(i, i);
+    }
+
+    b.iter(|| {
+        for i in 100100..200100 {
             m.contains_key(&i);
         }
     });
@@ -61,14 +99,14 @@ fn find_existing(b: &mut Bencher) {
 
 fn find_nonexisting(b: &mut Bencher) {
 
-    let mut m = HashMap::default();
+    let mut m = bench::fx::FxHashMap::default();
 
-    for i in 1..1001i64 {
+    for i in 1..100100u64 {
         m.insert(i, i);
     }
 
     b.iter(|| {
-        for i in 1001..2001 {
+        for i in 100100..200100 {
             m.contains_key(&i);
         }
     });
@@ -517,6 +555,7 @@ fn set_test() {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
+    /*
     bench::streq_n("a", "b");
     bench::streq_true("a", "b");
     bench::streq_s("a", "b");
@@ -553,8 +592,13 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("syntax_syntex_symbols", syntax_syntex_symbols);
     c.bench_function("syntax_syntex_symbols_str", syntax_syntex_symbols_str);
     c.bench_function("syntax_syntex_symbols_def", syntax_syntex_symbols_def);
+    */
+    */
     c.bench_function("find_existing", find_existing);
-    c.bench_function("find_nonexisting", find_nonexisting);*/
+    c.bench_function("find_existing_map", find_existing_map);
+    c.bench_function("find_nonexisting", find_nonexisting);
+    
+    c.bench_function("find_nonexisting_map", find_nonexisting_map);
 }
 /*pub fn benches() {
     let mut criterion: Criterion = Criterion::default()

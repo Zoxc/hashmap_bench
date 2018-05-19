@@ -11,18 +11,7 @@ extern crate criterion;
 #[macro_use]
 extern crate quickcheck;
 
-use std::marker::PhantomData;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::hash::BuildHasher;
 use std::hash::BuildHasherDefault;
-use std::mem::{self, size_of, align_of};
-use std::ptr::{self, Unique, NonNull};
-use std::alloc::{Global, Alloc, Layout};
-use std::collections::hash_map::RandomState;
-use std::borrow::Borrow;
-use std::slice;
-use std::fmt::Debug;
 
 pub mod set;
 pub mod map;
@@ -32,8 +21,24 @@ pub use set::Set;
 pub mod fx;
 
 pub type HashMap<K, V> = fx::FxHashMap<K, V>;
-/*
-#[inline]
+
+pub fn hmt(m: &fx::FxHashMap<u64, u64>, i: u64) -> u64 {
+    if let Some(&i) = m.get(&i) {
+        i
+    } else {
+        0
+    }
+}
+
+pub fn hmt2(m: &map::Map<u64, u64, BuildHasherDefault<fx::FxHasher>>, i: u64) -> u64 {
+    if let Some(&i) = m.get(&i) {
+        i
+    } else {
+        0
+    }
+}
+
+//#[inline]
 pub fn streq_sr(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -49,7 +54,8 @@ pub fn streq_sr(a: &str, b: &str) -> bool {
     }
     true
 }
-*/
+
+/*
 #[inline]
 pub fn same_page(addr: usize, size: usize) -> bool {
     const PAGE_MASK: usize = !(0x1000 - 1);
@@ -57,7 +63,7 @@ pub fn same_page(addr: usize, size: usize) -> bool {
 }
 
 const CHUNK_SIZE: usize = 16;
-/*
+
 #[inline]
 pub unsafe fn eq_chunk(a: *const u8, b: *const u8, offset: &mut usize, len: usize) -> Option<bool> {
      use std::arch::x86_64::*;
@@ -76,14 +82,14 @@ pub unsafe fn eq_chunk(a: *const u8, b: *const u8, offset: &mut usize, len: usiz
     *offset += CHUNK_SIZE;
     Some(true)
 }
-*/
+
 #[inline]
 pub unsafe fn eq_chunk(a: *const u8, b: *const u8, offset: &mut usize, len: usize) -> Option<bool> {
      use std::arch::x86_64::*;
     debug_assert!(len > 0);
     let a = a.offset(*offset as isize);
     let b = b.offset(*offset as isize);
-    if !same_page(a as usize, CHUNK_SIZE) || !same_page(b as usize, CHUNK_SIZE) {
+    if !same_page(a as usize, CHUNK_SIZE)/* || !same_page(b as usize, CHUNK_SIZE)*/ {
         return None;
     }
     let a = _mm_loadu_si128(a as *const _);
@@ -141,7 +147,7 @@ pub unsafe fn streq_sr(a: &str, b: &str) -> bool {
             slice::from_raw_parts(b.offset(offset as isize), len)
     }
 }
-
+*/
 #[inline(never)]
 pub fn streq_s(a: &str, b: &str) -> bool {
     unsafe {

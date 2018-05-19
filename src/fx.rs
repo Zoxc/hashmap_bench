@@ -12,7 +12,6 @@ use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::hash::{Hasher, Hash, BuildHasherDefault};
 use std::ops::BitXor;
-use std::mem;
 use std;
 use std::slice;
 

@@ -3,12 +3,11 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::hash::BuildHasher;
 use std::hash::BuildHasherDefault;
-use std::mem::{self, size_of, align_of};
-use std::ptr::{self, Unique, NonNull};
-use std::alloc::{Global, Alloc, Layout};
+use std::mem::{self, size_of};
+use std::ptr::{Unique, NonNull};
+use std::alloc::{Global, Alloc};
 use std::collections::hash_map::RandomState;
 use std::borrow::Borrow;
-use std::slice;
 use std::fmt::Debug;
 use fx;
 
