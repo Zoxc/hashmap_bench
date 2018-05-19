@@ -467,7 +467,7 @@ struct StrCmp(&'static &'static str);
 
 impl PartialEq for StrCmp {
     fn eq(&self, other: &StrCmp) -> bool {
-        bench::streq_sr(*self.0, *other.0)
+        unsafe { bench::streq_sr(*self.0, *other.0) }
     }
 }
 

@@ -57,15 +57,17 @@ pub fn same_page(addr: usize, size: usize) -> bool {
 }
 
 const CHUNK_SIZE: usize = 16;
-
+/*
 #[inline]
 pub unsafe fn eq_chunk(a: *const u8, b: *const u8, offset: &mut usize, len: usize) -> Option<bool> {
+     use std::arch::x86_64::*;
     debug_assert!(len > 0);
     let a = a.offset(*offset as isize);
     let b = b.offset(*offset as isize);
     if !same_page(a as usize, CHUNK_SIZE) || !same_page(b as usize, CHUNK_SIZE) {
         return None;
     }
+
     for i in 0..std::cmp::min(len, CHUNK_SIZE) {
         if *a.offset(i as isize) != *b.offset(i as isize) {
             return Some(false);
@@ -74,9 +76,34 @@ pub unsafe fn eq_chunk(a: *const u8, b: *const u8, offset: &mut usize, len: usiz
     *offset += CHUNK_SIZE;
     Some(true)
 }
+*/
+#[inline]
+pub unsafe fn eq_chunk(a: *const u8, b: *const u8, offset: &mut usize, len: usize) -> Option<bool> {
+     use std::arch::x86_64::*;
+    debug_assert!(len > 0);
+    let a = a.offset(*offset as isize);
+    let b = b.offset(*offset as isize);
+    if !same_page(a as usize, CHUNK_SIZE) || !same_page(b as usize, CHUNK_SIZE) {
+        return None;
+    }
+    let a = _mm_loadu_si128(a as *const _);
+    let b = _mm_loadu_si128(b as *const _);
+    let eq = _mm_cmpeq_epi8(a, b);
+    let mask = _mm_movemask_epi8(eq) as u16;
+    let mask_offset = if len > CHUNK_SIZE { 0 } else { CHUNK_SIZE - len };
+    // FIXME: Use bit extract instructions here? BMI2
+    // Could maybe do this in SIMD by using shuffle instructions?
+    let mask = mask.wrapping_shl(mask_offset as u32);
+    let mask = mask >> mask_offset;
+    if mask == 0 {
+        return Some(false);
+    }
+    *offset += CHUNK_SIZE;
+    Some(true)
+}
 
 #[inline]
-pub fn streq_sr(a: &str, b: &str) -> bool {
+pub unsafe fn streq_sr(a: &str, b: &str) -> bool {
     unsafe {
         if a.len() != b.len() {
             return false;
@@ -88,6 +115,7 @@ pub fn streq_sr(a: &str, b: &str) -> bool {
         if a == b || len == 0 {
             return true;
         }
+        debug_assert!(b as usize & 0xF == 0);
 
         match eq_chunk(a, b, &mut offset, len) {
             Some(true) => {
@@ -95,6 +123,16 @@ pub fn streq_sr(a: &str, b: &str) -> bool {
                     return true;
                 }
                 len -= CHUNK_SIZE;
+                match eq_chunk(a, b, &mut offset, len) {
+                    Some(true) => {
+                        if len <= CHUNK_SIZE {
+                            return true;
+                        }
+                        len -= CHUNK_SIZE;
+                    }
+                    Some(false) => return false,
+                    None => (),
+                }
             }
             Some(false) => return false,
             None => (),
@@ -106,7 +144,9 @@ pub fn streq_sr(a: &str, b: &str) -> bool {
 
 #[inline(never)]
 pub fn streq_s(a: &str, b: &str) -> bool {
-    streq_sr(a, b)
+    unsafe {
+        streq_sr(a, b)
+    }
 }
 
 #[inline(never)]
