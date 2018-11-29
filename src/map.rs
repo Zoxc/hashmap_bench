@@ -8,6 +8,7 @@ use std::ptr::{Unique, NonNull};
 use std::alloc::{Global, Alloc};
 use std::collections::hash_map::RandomState;
 use std::borrow::Borrow;
+use std;
 
 /*
 const ENTRIES_PER_GROUP: usize = 5;
@@ -42,9 +43,9 @@ impl Group {
         }
         None
     }
-
+/*
     #[inline(always)]
-    fn search_with<K, F: FnMut(&K) -> bool>(&self, eq: &mut F, key: u64, sentinel: u64) -> Option<(usize, bool)> {
+    fn search_with(&self, key: u64, sentinel: u64) -> Option<(usize, bool)> {
         // This unrolls
         for i in 0..ENTRIES_PER_GROUP {
             let k = unsafe { *self.keys.get_unchecked(i) };
@@ -53,6 +54,31 @@ impl Group {
             }
         }
         self.search_for_empty(sentinel).map(|i| (i, true))
+    }
+*/
+    #[inline(always)]
+    fn search_with(&self, key: u64, sentinel: u64) -> Option<(usize, bool)> {
+        use std::arch::x86_64::*;
+        unsafe {
+        let keys = _mm256_load_si256(&self.keys as *const _ as *const _);
+        let key = _mm256_set1_epi64x(key as i64);
+        let eq =  _mm256_cmpeq_epi64(keys, key);
+        let mask = _mm256_movemask_epi8(eq) as u32;
+        let idx = std::intrinsics::cttz(mask) as usize;
+        if idx != 32 {
+            Some((idx >> 3, true))
+        } else {
+            let sentinel = _mm256_set1_epi64x(sentinel as i64);
+            let eq =  _mm256_cmpeq_epi64(keys, sentinel);
+            let mask = _mm256_movemask_epi8(eq) as u32;
+            let idx = std::intrinsics::cttz(mask) as usize;
+            if idx != 32 {
+                Some((idx >> 3, false))
+            } else {
+                None
+            }
+        }
+        }
     }
 
     #[inline(always)]
@@ -144,7 +170,7 @@ impl Table {
         }
     }
 
-    fn search_with<K, F: FnMut(&K) -> bool>(&self, mut eq: F, hash: u64, sentinel: u64) -> RawEntry {
+    fn search_with(&self, hash: u64, sentinel: u64) -> RawEntry {
         let group_idx = hash as usize;
         let mask = self.group_mask;
         let mut group_idx = group_idx & mask;
@@ -157,7 +183,7 @@ impl Table {
             let group = unsafe {
                 &(*group_ptr)
             };
-            let r = unsafe { group.search_with(&mut eq, hash, sentinel) } ;
+            let r = unsafe { group.search_with(hash, sentinel) } ;
             //let r2 = unsafe { group.search_with2(&mut eq, hash as u32) } ;
             //assert_eq!(r, r2);
             //println!("search_with {}: {:?}", group_idx, r);
@@ -238,7 +264,6 @@ impl<K: Eq + Hash + Copy + Sentinel, V, S: Default + BuildHasher> Map<K, V, S> {
     }
 }
 
-#[inline(never)]
 pub fn make_hash<T: ?Sized, S>(hash_state: &S, t: &T) -> u64
     where T: Hash,
           S: BuildHasher
@@ -299,7 +324,7 @@ impl<K: Eq + Hash + Copy + Sentinel, V, S: BuildHasher> Map<K, V, S> {
         self.incr();
         assert!(k != K::sentinel());
         let hash = make_hash(&self.hash_builder, &k);
-        let spot = self.table.search_with::<K, _>(|key| key == &k, hash, Self::sentinel());
+        let spot = self.table.search_with(hash, Self::sentinel());
         if spot.empty {
             self.table.size += 1;
         }
@@ -318,7 +343,7 @@ impl<K: Eq + Hash + Copy + Sentinel, V, S: BuildHasher> Map<K, V, S> {
               Q: Hash + Eq
     {
         let hash = make_hash(&self.hash_builder, value);
-        let spot = self.table.search_with::<K, _>(|k| value.eq(k.borrow()), hash, Self::sentinel());
+        let spot = self.table.search_with(hash, Self::sentinel());
         if spot.empty {
             None
         } else {

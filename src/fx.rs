@@ -13,6 +13,7 @@ use std::default::Default;
 use std::hash::{Hasher, Hash, BuildHasherDefault};
 use std::ops::BitXor;
 use std;
+use std::mem::size_of;
 use std::slice;
 
 pub type FxHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -110,7 +111,7 @@ impl Hasher for FxHasher {
     }
 }
 
-
+#[derive(Copy, Clone)]
 pub struct FxHasher2 {
     hash: usize
 }
@@ -127,11 +128,8 @@ impl FxHasher2 {
     fn add_to_hash(&mut self, i: usize) {
         self.hash = self.hash.rotate_left(5).bitxor(i).wrapping_mul(K);
     }
-}
 
-impl Hasher for FxHasher2 {
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
+    pub fn write2(&mut self, mut bytes: &[u8]) {
         let split = bytes.len() & !7;
         let (first, rest) =  bytes.split_at(split);
         let first: &[usize] = unsafe { 
@@ -144,6 +142,93 @@ impl Hasher for FxHasher2 {
             let i = *byte;
             self.add_to_hash(i as usize);
         }
+    }
+
+    pub fn write(&mut self, mut bytes: &[u8]) {
+        unsafe {
+            while bytes.len() >= size_of::<usize>() {
+                self.add_to_hash(*(bytes.as_ptr() as *const usize));
+                bytes = &bytes[size_of::<usize>()..];
+            }
+            #[cfg(target_pointer_width = "64")]
+            {
+                if bytes.len() >= 4 {
+                    self.add_to_hash(*(bytes.as_ptr() as *const u32) as usize);
+                    bytes = &bytes[4..];
+                }
+            }
+            if bytes.len() >= 2 {
+                self.add_to_hash(*(bytes.as_ptr() as *const u16) as usize);
+                bytes = &bytes[2..];
+            }
+            if bytes.len() >= 1 {
+                self.add_to_hash(bytes[0] as usize);
+            }
+        }
+    }
+}
+
+impl Hasher for FxHasher2 {
+    fn write(&mut self, mut bytes: &[u8]) {
+        use byteorder::{ByteOrder, NativeEndian};
+
+        #[cfg(target_pointer_width = "32")]
+        let read_usize = |bytes| NativeEndian::read_u32(bytes);
+        #[cfg(target_pointer_width = "64")]
+        let read_usize = |bytes| NativeEndian::read_u64(bytes);
+
+        /*let split = bytes.len() & !7;
+        let (first, rest) =  bytes.split_at(split);
+        let first: &[usize] = unsafe { 
+            std::slice::from_raw_parts(first.as_ptr() as *const usize, first.len() / 8)
+        };
+        for word in first {
+            self.add_to_hash(*word);
+        }
+        for byte in rest {
+            let i = *byte;
+            self.add_to_hash(i as usize);
+        }*/
+    
+        let mut hash = *self;
+        assert!(size_of::<usize>() <= 8);
+        while bytes.len() >= size_of::<usize>() {
+            hash.add_to_hash(read_usize(bytes) as usize);
+            bytes = &bytes[size_of::<usize>()..];
+        }
+        if (size_of::<usize>() > 4) && (bytes.len() >= 4) {
+            hash.add_to_hash(NativeEndian::read_u32(bytes) as usize);
+            bytes = &bytes[4..];
+        }
+        if (size_of::<usize>() > 2) && bytes.len() >= 2 {
+            hash.add_to_hash(NativeEndian::read_u16(bytes) as usize);
+            bytes = &bytes[2..];
+        }
+        if (size_of::<usize>() > 1) && bytes.len() >= 1 {
+            hash.add_to_hash(bytes[0] as usize);
+        }
+        *self = hash;
+            /*while bytes.len() >= 1 {
+                self.add_to_hash(bytes[0] as usize);
+                bytes = &bytes[1..];
+            }
+            for &byte in bytes {
+                self.add_to_hash(byte as usize);
+            }*/
+            /*#[cfg(target_pointer_width = "64")]
+            {
+                if bytes.len() >= 4 {
+                    self.add_to_hash(*(bytes.as_ptr() as *const u32) as usize);
+                    bytes = &bytes[4..];
+                }
+            }
+            if bytes.len() >= 2 {
+                self.add_to_hash(*(bytes.as_ptr() as *const u16) as usize);
+                bytes = &bytes[2..];
+            }
+            if bytes.len() >= 1 {
+                self.add_to_hash(bytes[0] as usize);
+            }*/
     }
 
     #[inline]

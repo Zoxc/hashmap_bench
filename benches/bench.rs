@@ -1,4 +1,6 @@
 
+#![feature(hash_raw_entry)]
+
 #[macro_use]
 extern crate criterion;
 
@@ -6,6 +8,7 @@ extern crate criterion;
 extern crate lazy_static;
 
 extern crate bench;
+extern crate hashbrown;
 
 use bench::fx::FxHasher2;
 
@@ -13,10 +16,11 @@ use criterion::black_box;
 use criterion::Bencher;
 use std::mem::size_of_val;
 use criterion::Criterion;
+use std::collections::hash_map::RawEntryMut;
 
 use std::collections::hash_map::RandomState;
 use std::collections::hash_map;
-use std::collections::HashSet;
+use std::collections::{self, HashSet};
 
 use std::time::Duration;
 
@@ -70,7 +74,7 @@ fn find_existing_map(b: &mut Bencher) {
 fn find_existing(b: &mut Bencher) {
     let mut m = bench::fx::FxHashMap::default();
 
-    for i in 1..1001000u64 {
+    for i in 1..100100u64 {
         m.insert(i, i);
     }
 
@@ -364,6 +368,25 @@ fn syntax_syntex_hash_symbols_def(b: &mut Bencher) {
     });
 }
 
+fn symbols_indirect_hashbrown_cap(b: &mut Bencher) {
+    fn intern(map: &mut hashbrown::HashSet<&'static &'static str, BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
+        if let Some(&name) = map.get(string) {
+            return name;
+        }
+        map.insert(string);
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = hashbrown::HashSet::with_capacity_and_hasher(strs.len(), Default::default());
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
+}
+
 fn symbols_indirect_cap(b: &mut Bencher) {
     fn intern(map: &mut HashSet<&'static &'static str, BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
         if let Some(&name) = map.get(string) {
@@ -411,6 +434,25 @@ fn symbols_test() {
     for s in strs {
         intern(&mut m2, &mut m1, s);
     }
+}
+
+fn symbols_indirect_hashbrown(b: &mut Bencher) {
+    fn intern(map: &mut hashbrown::HashSet<&'static &'static str, BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
+        if let Some(&name) = map.get(string) {
+            return name;
+        }
+        map.insert(string);
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = hashbrown::HashSet::default();
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
 }
 
 fn symbols_indirect(b: &mut Bencher) {
@@ -522,6 +564,66 @@ fn symbols_indirect_set_intern_strcmp(b: &mut Bencher) {
     });
 }
 
+fn symbols_indirect_intern_hashbrown(b: &mut Bencher) {
+    fn intern(map: &mut hashbrown::HashMap<&'static &'static str, (), BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
+        map.entry(string).or_insert(());
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = hashbrown::HashMap::default();
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
+}
+
+fn symbols_indirect_intern(b: &mut Bencher) {
+    fn intern(map: &mut collections::HashMap<&'static &'static str, (), BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
+        map.entry(string).or_insert(());
+        string
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = collections::HashMap::default();
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
+}
+
+fn symbols_indirect_intern_raw(b: &mut Bencher) {
+    #[no_mangle]
+    #[inline(never)]
+    fn intern(map: &mut collections::HashMap<&'static &'static str, (), BuildHasherDefault<FxHasher2>>, string: &'static &'static str) -> &'static &'static str {
+        let mut hasher = map.hasher().build_hasher();
+        string.hash(&mut hasher);
+        let hash = hasher.finish();
+        let entry = map.raw_entry_mut().from_key_hashed_nocheck(hash, string);
+
+        match entry {
+            RawEntryMut::Occupied(e) => *e.key(),
+            RawEntryMut::Vacant(e) => {
+                e.insert_hashed_nocheck(hash, string, ());
+                string
+            }
+        }
+    }
+
+    let strs = &SYMBOLS.1;
+
+    b.iter(|| {
+        let mut m = collections::HashMap::default();
+        for s in strs {
+            intern(&mut m, s);
+        }
+    });
+}
+
 fn symbols_indirect_set_intern(b: &mut Bencher) {
     let strs = &SYMBOLS.1;
 
@@ -570,35 +672,38 @@ fn criterion_benchmark(c: &mut Criterion) {
    // c.bench_function("new_insert_drop", new_insert_drop);
     //c.bench_function("grow_by_insertion", grow_by_insertion);
     syntax_syntex_hit_rate();
-    symbols_test();
+    symbols_test();*/*/
+    c.bench_function("symbols_indirect_hashbrown", symbols_indirect_hashbrown);
     c.bench_function("symbols_indirect", symbols_indirect);
-    c.bench_function("symbols_indirect_set", symbols_indirect_set);*/
-    /*c.bench_function("syntax_syntex_hash_symbols_plain", syntax_syntex_hash_symbols_plain);
-    c.bench_function("syntax_syntex_hash_symbols_dummy", syntax_syntex_hash_symbols_dummy);
-    c.bench_function("syntax_syntex_hash_symbols_fx2", syntax_syntex_hash_symbols_fx2);
-    c.bench_function("str_dummy", str_dummy);
+    c.bench_function("symbols_indirect_set", symbols_indirect_set);
+    //c.bench_function("syntax_syntex_hash_symbols_plain", syntax_syntex_hash_symbols_plain);
+    //c.bench_function("syntax_syntex_hash_symbols_dummy", syntax_syntex_hash_symbols_dummy);
+    //c.bench_function("syntax_syntex_hash_symbols_fx2", syntax_syntex_hash_symbols_fx2);
+    /*c.bench_function("str_dummy", str_dummy);
     c.bench_function("str_fx2", str_fx2);*/
-
-    //c.bench_function("symbols_indirect", symbols_indirect);
     //c.bench_function("symbols_indirect_simple", symbols_indirect_simple);
-    c.bench_function("symbols_indirect_set_intern_strcmp", symbols_indirect_set_intern_strcmp);
+   // c.bench_function("symbols_indirect_set_intern_strcmp", symbols_indirect_set_intern_strcmp);
+    c.bench_function("symbols_indirect_intern_hashbrown", symbols_indirect_intern_hashbrown);
+    c.bench_function("symbols_indirect_intern_raw", symbols_indirect_intern_raw);
+    c.bench_function("symbols_indirect_intern", symbols_indirect_intern);
     c.bench_function("symbols_indirect_set_intern", symbols_indirect_set_intern);
     //c.bench_function("symbols_indirect_set_intern_simple", symbols_indirect_set_intern_simple);
     /*c.bench_function("symbols_indirect_cap", symbols_indirect_cap);
-    c.bench_function("symbols_indirect_set_cap", symbols_indirect_set_cap);
+    c.bench_function("symbols_indirect_hashbrown_cap", symbols_indirect_hashbrown_cap);
+    c.bench_function("symbols_indirect_set_cap", symbols_indirect_set_cap);*/
+    /*
     c.bench_function("symbols_indirect_set_intern_cap", symbols_indirect_set_intern_cap);*/
-    /*c.bench_function("syntax_syntex_hash_symbols_fx", syntax_syntex_hash_symbols_fx);
-    c.bench_function("syntax_syntex_hash_symbols_def", syntax_syntex_hash_symbols_def);
-    c.bench_function("syntax_syntex_symbols", syntax_syntex_symbols);
-    c.bench_function("syntax_syntex_symbols_str", syntax_syntex_symbols_str);
-    c.bench_function("syntax_syntex_symbols_def", syntax_syntex_symbols_def);
-    */
-    */
+    //c.bench_function("syntax_syntex_hash_symbols_fx", syntax_syntex_hash_symbols_fx);
+    //c.bench_function("syntax_syntex_hash_symbols_def", syntax_syntex_hash_symbols_def);
+    /*c.bench_function("syntax_syntex_symbols", syntax_syntex_symbols);
+    /*c.bench_function("syntax_syntex_symbols_str", syntax_syntex_symbols_str);
+    c.bench_function("syntax_syntex_symbols_def", syntax_syntex_symbols_def);*/
     c.bench_function("find_existing", find_existing);
     c.bench_function("find_existing_map", find_existing_map);
     c.bench_function("find_nonexisting", find_nonexisting);
     
-    c.bench_function("find_nonexisting_map", find_nonexisting_map);
+    c.bench_function("find_nonexisting_map", find_nonexisting_map);*/
+
 }
 /*pub fn benches() {
     let mut criterion: Criterion = Criterion::default()
@@ -610,9 +715,9 @@ fn criterion_benchmark(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default()
-        .sample_size(5)
-        .warm_up_time(Duration::new(1, 0))
-        .measurement_time(Duration::new(1, 0));
+        .sample_size(10)
+        .warm_up_time(Duration::new(5, 0))
+        .measurement_time(Duration::new(5, 0));
     targets = criterion_benchmark);
 criterion_main!(benches);
 /*

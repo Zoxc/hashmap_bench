@@ -2,11 +2,12 @@
 #![feature(ptr_internals)]
 #![feature(allocator_api)]
 #![feature(core_intrinsics)]
+#![feature(hash_raw_entry)]
 
 
 extern crate alloc;
 extern crate criterion;
-
+extern crate byteorder;
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;
