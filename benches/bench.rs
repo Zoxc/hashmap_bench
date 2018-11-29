@@ -624,7 +624,7 @@ fn symbols_indirect_intern_raw(b: &mut Bencher) {
     });
 }
 
-fn symbols_indirect_set_intern(b: &mut Bencher) {
+fn symbols_indirect_intern_set(b: &mut Bencher) {
     let strs = &SYMBOLS.1;
 
     b.iter(|| {
@@ -686,7 +686,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("symbols_indirect_intern_hashbrown", symbols_indirect_intern_hashbrown);
     c.bench_function("symbols_indirect_intern_raw", symbols_indirect_intern_raw);
     c.bench_function("symbols_indirect_intern", symbols_indirect_intern);
-    c.bench_function("symbols_indirect_set_intern", symbols_indirect_set_intern);
+    c.bench_function("symbols_indirect_intern_set", symbols_indirect_intern_set);
     //c.bench_function("symbols_indirect_set_intern_simple", symbols_indirect_set_intern_simple);
     /*c.bench_function("symbols_indirect_cap", symbols_indirect_cap);
     c.bench_function("symbols_indirect_hashbrown_cap", symbols_indirect_hashbrown_cap);
